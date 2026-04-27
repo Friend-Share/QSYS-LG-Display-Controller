@@ -1,0 +1,12 @@
+-- LG Display Controller
+-- RS-232 / TCP (port 9761) + Wake on LAN
+-- For Q-SYS Scripted Component
+
+PluginInfo = {
+  Name = "LG Display Controller",
+  Version = "1.0.0.007",
+  BuildVersion = "1.0.0.1",
+  Id = "lg-display-rs232-tcp",
+  Author = "Dustin Bennett",
+  Description = "Controls LG displays via RS-232C or TCP with WOL support"
+}
