@@ -5,10 +5,12 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 ## Features
 
 - **Dual Transport** — RS-232 (9600/8/N/1) or Ethernet TCP (port 9761)
-- **Display Type Profiles** — Switch between *Commercial Signage* and *Pro:Centric* input source maps via a dropdown
+- **Display Type Profiles** — Switch between *Commercial Signage* and *Pro:Centric* input source maps
 - **Wake-on-LAN** — Optional WOL magic-packet power-on with configurable MAC address
+- **Two-Tab Interface** — Display Control tab + Remote/Channel tab
 - **Display Controls** — Power, audio mute, screen mute (blank), input source selection, volume, brightness, contrast, aspect ratio
-- **Channel Controls** — Channel up/down, direct tune (major/minor), and 6 favorite channel presets with set/recall
+- **Remote Control** — Full number pad (0–9), navigation d-pad (Up/Down/Left/Right/OK), Menu, Home, Back, Exit, Info, Settings
+- **Channel Controls** — Channel up/down, direct tune (major/minor), and 6 favorite channel presets
 - **Automatic Polling** — Configurable polling interval keeps all status indicators in sync
 - **Startup Source** — Automatically switch to a configured input after power-on confirmation
 - **Multi-Display** — Configurable Set ID (0–99) for RS-232 daisy-chain environments
@@ -31,7 +33,7 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 | **IP Address** | Text | `192.168.1.100` | Display IP (TCP mode only) |
 | **Set ID** | Integer | `1` | LG Set ID (0 = broadcast, 1–99 = individual) |
 | **Poll Interval** | Integer | `5` | Status polling interval in seconds (1–30) |
-| **Display Type** | Dropdown | `Commercial Signage` | Switches available input sources between Signage and Pro:Centric profiles |
+| **Display Type** | Dropdown | `Commercial Signage` | Switches input sources between Signage and Pro:Centric profiles |
 | **Power On Method** | Dropdown | `Standard` | `Standard` (RS-232/TCP command) or `Wake on LAN` |
 | **MAC Address** | Text | *(empty)* | Display MAC address for WOL (format: `AA:BB:CC:DD:EE:FF`) |
 | **Startup Source** | Dropdown | `None` | Auto-switch to this input after power-on |
@@ -47,9 +49,7 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 
 1. Set **Connection Type** to `TCP`
 2. Enter the display's **IP Address**
-3. Ensure **IP Control** is enabled on the display:
-   - Navigate to the installer/setup menu
-   - Enable "Network IP Control"
+3. Ensure **IP Control** is enabled on the display (hidden installer menu)
 4. The plugin connects on **port 9761**
 
 ### Wake-on-LAN Setup
@@ -57,19 +57,12 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 1. Set **Power On Method** to `Wake on LAN`
 2. Enter the display's **MAC Address** (e.g., `AB:CD:EF:12:34:56`)
 3. Ensure the display and Q-SYS Core are on the same network/VLAN
-4. When Power On is pressed, the plugin sends a WOL magic packet first, then follows up with the standard power-on command after 3 seconds
+4. Power On sends a WOL magic packet, then follows up with the standard command after 3 seconds
 
-## Input Source Profiles
+## Plugin Tabs
 
-### Commercial Signage
-HDMI 1–4, DisplayPort, DVI-D, USB, OPS/PC
+### Tab 1: Display Control
 
-### Pro:Centric
-HDMI 1–4, Component, AV, USB, TV Tuner
-
-## Controls Reference
-
-### Display Control Section
 | Control | Function |
 |---|---|
 | **ON / OFF** | Power on/off (green/red buttons) |
@@ -79,19 +72,36 @@ HDMI 1–4, Component, AV, USB, TV Tuner
 | **VOL +/−** | Adjust volume |
 | **Bright +/−** | Adjust brightness |
 | **Contrast +/−** | Adjust contrast |
-| **Status Indicators** | Power state, mute state, current source, volume level, brightness, contrast, aspect ratio |
+| **Status Indicators** | Power, mute, source, volume, brightness, contrast, aspect ratio |
 | **Connection LED** | Green = connected, Off = disconnected |
 
-### Channel Control Section
+### Tab 2: Remote / Channel
+
 | Control | Function |
 |---|---|
+| **Number Pad (0–9)** | Send number key presses (IR key codes) |
+| **▲ ▼ ◄ ►** | Navigation d-pad |
+| **OK** | Enter/confirm selection |
+| **MENU** | Open display menu |
+| **HOME** | Home screen |
+| **BACK** | Go back |
+| **EXIT** | Exit menu |
+| **INFO** | Show info overlay |
+| **SET** | Settings |
 | **CH +/−** | Channel up/down |
-| **Major / Minor** | Direct channel number entry |
-| **TUNE** | Execute direct tune with entered major/minor |
+| **Direct Tune** | Enter major/minor channel number and press TUNE |
 | **FAV 1–6** | Recall a saved favorite channel |
-| **SET** | Store current major/minor to a favorite slot |
+| **SET (per fav)** | Store current channel to a favorite slot |
 
-> **Note:** Channel controls require a display with a built-in RF tuner (e.g., Pro:Centric hotel TVs). Signage panels without tuners will not respond to channel commands.
+> **Note:** Channel controls require a display with a built-in RF tuner. Signage panels without tuners will not respond to channel commands.
+
+## Input Source Profiles
+
+### Commercial Signage
+HDMI 1–4, DisplayPort, DVI-D, USB, OPS/PC
+
+### Pro:Centric
+HDMI 1–4, Component, AV, USB, TV Tuner
 
 ## LG Protocol Reference
 
@@ -107,6 +117,7 @@ Command format: `[cmd1][cmd2] [setID] [data]\r`
 | Brightness | `kh` | `00`–`64` (hex) / `ff` query |
 | Contrast | `kg` | `00`–`64` (hex) / `ff` query |
 | Aspect Ratio | `kc` | `ff` query |
+| IR Key | `mc` | hex key code |
 | Channel Up/Down | `mc` | `00` up / `01` down |
 | Direct Tune | `ma` | major/minor in hex |
 
