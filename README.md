@@ -133,10 +133,5 @@ Command format: `[cmd1][cmd2] [setID] [data]\r`
 
 Response format: `[cmd2] [setID] OK[data]x` (success) or `[cmd2] [setID] NG[data]x` (error)
 
-## Author
+## AuthorDustin Bennett
 
-Dustin Bennett
-
-## License
-
-MIT
