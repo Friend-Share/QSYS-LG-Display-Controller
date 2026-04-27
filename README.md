@@ -13,7 +13,10 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 - **Channel Controls** — Channel up/down, direct tune (major/minor), and 6 favorite channel presets
 - **Automatic Polling** — Configurable polling interval keeps all status indicators in sync
 - **Startup Source** — Automatically switch to a configured input after power-on confirmation
+- **Startup Mute** — Optionally mute audio on power-on
 - **Multi-Display** — Configurable Set ID (0–99) for RS-232 daisy-chain environments
+- **Stateful Buttons** — Power, source, mute, and screen mute buttons immediately reflect pressed state; text indicators update from actual display feedback
+- **Pre-select Source** — Source buttons can be selected while the display is off; the chosen source is applied when power comes on
 
 ## Installation
 
@@ -36,7 +39,8 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 | **Display Type** | Dropdown | `Commercial Signage` | Switches input sources between Signage and Pro:Centric profiles |
 | **Power On Method** | Dropdown | `Standard` | `Standard` (RS-232/TCP command) or `Wake on LAN` |
 | **MAC Address** | Text | *(empty)* | Display MAC address for WOL (format: `AA:BB:CC:DD:EE:FF`) |
-| **Startup Source** | Dropdown | `None` | Auto-switch to this input after power-on |
+| **Startup Source** | Dropdown | `None` | Auto-switch to this input after power-on (only if no source was manually pre-selected) |
+| **Startup Mute** | Dropdown | `Unmuted` | `Unmuted` or `Muted` — automatically mute audio on power-on |
 
 ### RS-232 Setup
 
@@ -65,10 +69,10 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 
 | Control | Function |
 |---|---|
-| **ON / OFF** | Power on/off (green/red buttons) |
+| **ON / OFF** | Power on/off (toggle buttons — stay lit to show current state) |
 | **MUTE** | Toggle audio mute |
 | **BLANK** | Toggle screen mute (video blanking) |
-| **Source Buttons** | Select input (radio-group behavior) |
+| **Source Buttons** | Select input (radio-group behavior, selectable while display is off) |
 | **VOL +/−** | Adjust volume |
 | **Bright +/−** | Adjust brightness |
 | **Contrast +/−** | Adjust contrast |
@@ -94,6 +98,12 @@ A Q-SYS scripted component plugin for controlling LG commercial displays via **R
 | **SET (per fav)** | Store current channel to a favorite slot |
 
 > **Note:** Channel controls require a display with a built-in RF tuner. Signage panels without tuners will not respond to channel commands.
+
+## Button Behavior
+
+- **Power ON/OFF** — Toggle buttons that stay lit to reflect current state. Cannot be untoggled by clicking again. If startup source is configured, the corresponding source button is pre-selected at init.
+- **Source Buttons** — Radio group (one active at a time). Can be selected while display is off; the queued source is sent when power comes on. Cannot be deselected by clicking the active source again.
+- **Mute / Screen Mute** — Toggle buttons that immediately reflect state. Text indicators update only from actual display feedback.
 
 ## Input Source Profiles
 
