@@ -10,3 +10,604 @@ PluginInfo = {
   Author = "Dustin Bennett",
   Description = "Controls LG displays via RS-232C or TCP with WOL support"
 }
+
+function GetColor(props) return { 170, 0, 90 } end
+function GetPrettyName(props) return "LG Display" end
+
+function GetPages(props)
+  return {
+    { name = "Display Control" },
+    { name = "Remote / Channel" }
+  }
+end
+
+-- ==================== SOURCE TABLES ====================
+local SIGNAGE_SOURCES = {
+  { name="HDMI 1", code="90" }, { name="HDMI 2", code="91" },
+  { name="HDMI 3", code="92" }, { name="HDMI 4", code="93" },
+  { name="DisplayPort", code="C0" }, { name="DVI-D", code="80" },
+  { name="USB", code="E0" }, { name="OPS/PC", code="E8" },
+}
+local PROCENTRIC_SOURCES = {
+  { name="HDMI 1", code="90" }, { name="HDMI 2", code="91" },
+  { name="HDMI 3", code="92" }, { name="HDMI 4", code="93" },
+  { name="Component", code="40" }, { name="AV", code="20" },
+  { name="USB", code="E0" }, { name="TV Tuner", code="00" },
+}
+
+local function get_sources(props)
+  if props["Display Type"] and props["Display Type"].Value == "Pro:Centric" then
+    return PROCENTRIC_SOURCES
+  end
+  return SIGNAGE_SOURCES
+end
+
+local function source_name_list(props)
+  local list = {"None"}
+  for _, s in ipairs(get_sources(props)) do table.insert(list, s.name) end
+  return list
+end
+
+-- ==================== PROPERTIES ====================
+function GetProperties()
+  return {
+    { Name="Connection Type", Type="enum", Choices={"TCP","RS-232"}, Value="TCP" },
+    { Name="IP Address", Type="string", Value="192.168.1.100" },
+    { Name="Set ID", Type="integer", Value=1, Min=0, Max=99 },
+    { Name="Poll Interval", Type="integer", Value=5, Min=1, Max=30 },
+    { Name="Display Type", Type="enum", Choices={"Commercial Signage","Pro:Centric"}, Value="Commercial Signage" },
+    { Name="Power On Method", Type="enum", Choices={"Standard","Wake on LAN"}, Value="Standard" },
+    { Name="MAC Address", Type="string", Value="" },
+    { Name="Startup Source", Type="enum", Choices={"None","HDMI 1","HDMI 2","HDMI 3","HDMI 4","DisplayPort","DVI-D","USB","OPS/PC","Component","AV","TV Tuner"}, Value="None" },
+    { Name="Startup Mute", Type="enum", Choices={"Unmuted","Muted"}, Value="Unmuted" },
+  }
+end
+
+-- ==================== PINS ====================
+function GetPins(props)
+  local pins = {}
+  if props["Connection Type"].Value == "RS-232" then
+    table.insert(pins, { Name="Serial Port", Direction="input", Domain="serial" })
+  end
+  return pins
+end
+
+-- ==================== CONTROLS ====================
+function GetControls(props)
+  local c = {}
+  -- Power
+  table.insert(c, {Name="power_on", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="power_off", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="power_state", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="power_led", ControlType="Indicator", IndicatorType="Led", UserPin=true, PinStyle="Output", Count=1})
+  -- Audio Mute
+  table.insert(c, {Name="mute_toggle", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="mute_state", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="mute_led", ControlType="Indicator", IndicatorType="Led", UserPin=true, PinStyle="Output", Count=1})
+  -- Screen Mute
+  table.insert(c, {Name="screen_mute_toggle", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="screen_mute_state", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="screen_mute_led", ControlType="Indicator", IndicatorType="Led", UserPin=true, PinStyle="Output", Count=1})
+  -- Source (8 buttons)
+  local srcs = get_sources(props)
+  for i = 1, #srcs do
+    table.insert(c, {Name="src_"..i, ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  end
+  table.insert(c, {Name="current_source", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  -- Volume
+  table.insert(c, {Name="vol_up", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="vol_down", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="vol_level", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  -- Brightness / Contrast
+  table.insert(c, {Name="bright_up", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="bright_down", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="bright_level", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="contrast_up", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="contrast_down", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Input", Count=1})
+  table.insert(c, {Name="contrast_level", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  -- Status
+  table.insert(c, {Name="aspect_ratio", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="connection_status", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="connection_led", ControlType="Indicator", IndicatorType="Led", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="last_response", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  -- Channel controls
+  table.insert(c, {Name="ch_up", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="ch_down", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="ch_number", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  table.insert(c, {Name="ch_major", ControlType="Knob", ControlUnit="Integer", Min=0, Max=999, UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="ch_minor", ControlType="Knob", ControlUnit="Integer", Min=0, Max=999, UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="ch_tune", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  -- Favorites (6 slots)
+  for i = 1, 6 do
+    table.insert(c, {Name="fav_set_"..i, ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+    table.insert(c, {Name="fav_recall_"..i, ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+    table.insert(c, {Name="fav_label_"..i, ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
+  end
+  -- Remote: Number pad
+  for i = 0, 9 do
+    table.insert(c, {Name="num_"..i, ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  end
+  -- Remote: Navigation
+  table.insert(c, {Name="nav_up", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="nav_down", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="nav_left", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="nav_right", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="nav_ok", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  -- Remote: Menu buttons
+  table.insert(c, {Name="btn_menu", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="btn_home", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="btn_back", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="btn_exit", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="btn_info", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="btn_settings", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  return c
+end
+
+-- ==================== LAYOUT ====================
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {}
+  local srcs = get_sources(props)
+  local W = 360
+  local x, y = 0, 0
+  local current_page = props["page_index"].Value
+
+  -- Header (both pages)
+  table.insert(graphics, {Type="Header", Text="LG Display Controller", Position={x,y}, Size={W,24}, FontSize=12, HTextAlign="Center"})
+  y = y + 28
+
+  -- Connection (both pages)
+  table.insert(graphics, {Type="GroupBox", Text="Connection", Position={x,y}, Size={W,52}, FontSize=10})
+  layout["connection_led"] = {PrettyName="Connection LED", Style="Led", Position={x+8,y+22}, Size={16,16}}
+  layout["connection_status"] = {PrettyName="Connection Status", Style="Text", Position={x+28,y+20}, Size={130,20}, FontSize=9}
+  layout["last_response"] = {PrettyName="Last Response", Style="Text", Position={x+165,y+20}, Size={185,20}, FontSize=8}
+  y = y + 56
+
+  if current_page == 1 then
+    -- ===== PAGE 1: DISPLAY CONTROL =====
+    -- Power
+    table.insert(graphics, {Type="GroupBox", Text="Power", Position={x,y}, Size={W,52}, FontSize=10})
+    layout["power_on"] = {PrettyName="Power On", Style="Button", Legend="ON", Position={x+8,y+20}, Size={60,24}, Color={0,180,0}}
+    layout["power_off"] = {PrettyName="Power Off", Style="Button", Legend="OFF", Position={x+72,y+20}, Size={60,24}, Color={200,0,0}}
+    layout["power_state"] = {PrettyName="Power State", Style="Text", Position={x+140,y+20}, Size={140,24}, FontSize=10}
+    layout["power_led"] = {PrettyName="Power LED", Style="Led", Position={x+290,y+22}, Size={16,16}}
+    y = y + 56
+
+    -- Audio Mute / Screen Mute side by side
+    table.insert(graphics, {Type="GroupBox", Text="Audio Mute", Position={x,y}, Size={W/2,52}, FontSize=10})
+    layout["mute_toggle"] = {PrettyName="Mute", Style="Button", Legend="MUTE", Position={x+8,y+20}, Size={80,24}, Color={200,100,0}, OffColor={40,40,40}}
+    layout["mute_state"] = {PrettyName="Mute State", Style="Text", Position={x+92,y+20}, Size={68,24}, FontSize=9}
+    layout["mute_led"] = {PrettyName="Mute LED", Style="Led", Position={x+162,y+22}, Size={14,14}}
+    local sx = W/2
+    table.insert(graphics, {Type="GroupBox", Text="Screen Mute", Position={sx,y}, Size={W/2,52}, FontSize=10})
+    layout["screen_mute_toggle"] = {PrettyName="Screen Mute", Style="Button", Legend="BLANK", Position={sx+8,y+20}, Size={80,24}, Color={180,0,180}, OffColor={40,40,40}}
+    layout["screen_mute_state"] = {PrettyName="Screen Mute State", Style="Text", Position={sx+92,y+20}, Size={68,24}, FontSize=9}
+    layout["screen_mute_led"] = {PrettyName="Screen Mute LED", Style="Led", Position={sx+162,y+22}, Size={14,14}}
+    y = y + 56
+
+    -- Source
+    local sc,sr,sbw,sbh,sg = 4, math.ceil(#srcs/4), 82, 22, 4
+    local sbx_h = 18 + sr*(sbh+sg) + 24
+    table.insert(graphics, {Type="GroupBox", Text="Input Source", Position={x,y}, Size={W,sbx_h}, FontSize=10})
+    for i, s in ipairs(srcs) do
+      local col = (i-1) % sc; local row = math.floor((i-1) / sc)
+      layout["src_"..i] = {PrettyName=s.name, Style="Button", Legend=s.name, Position={x+8+col*(sbw+sg), y+18+row*(sbh+sg)}, Size={sbw,sbh}, FontSize=8, Color={0,120,200}, OffColor={40,40,40}}
+    end
+    layout["current_source"] = {PrettyName="Current Source", Style="Text", Position={x+8, y+18+sr*(sbh+sg)}, Size={W-16,20}, FontSize=9}
+    y = y + sbx_h + 4
+
+    -- Volume
+    table.insert(graphics, {Type="GroupBox", Text="Volume", Position={x,y}, Size={W,52}, FontSize=10})
+    layout["vol_up"] = {PrettyName="Vol Up", Style="Button", Legend="VOL +", Position={x+8,y+20}, Size={60,24}, Color={0,120,200}}
+    layout["vol_down"] = {PrettyName="Vol Down", Style="Button", Legend="VOL -", Position={x+72,y+20}, Size={60,24}, Color={0,120,200}}
+    layout["vol_level"] = {PrettyName="Volume", Style="Text", Position={x+140,y+20}, Size={120,24}, FontSize=10}
+    y = y + 56
+
+    -- Picture
+    table.insert(graphics, {Type="GroupBox", Text="Picture", Position={x,y}, Size={W,76}, FontSize=10})
+    table.insert(graphics, {Type="Text", Text="Bright:", Position={x+8,y+20}, Size={42,18}, FontSize=9})
+    layout["bright_up"] = {PrettyName="Bright Up", Style="Button", Legend="+", Position={x+52,y+18}, Size={30,22}, Color={0,120,200}}
+    layout["bright_down"] = {PrettyName="Bright Down", Style="Button", Legend="-", Position={x+84,y+18}, Size={30,22}, Color={0,120,200}}
+    layout["bright_level"] = {PrettyName="Brightness", Style="Text", Position={x+118,y+18}, Size={60,22}, FontSize=9}
+    table.insert(graphics, {Type="Text", Text="Contrast:", Position={x+186,y+20}, Size={50,18}, FontSize=9})
+    layout["contrast_up"] = {PrettyName="Contrast Up", Style="Button", Legend="+", Position={x+238,y+18}, Size={30,22}, Color={0,120,200}}
+    layout["contrast_down"] = {PrettyName="Contrast Down", Style="Button", Legend="-", Position={x+270,y+18}, Size={30,22}, Color={0,120,200}}
+    layout["contrast_level"] = {PrettyName="Contrast", Style="Text", Position={x+304,y+18}, Size={48,22}, FontSize=9}
+    table.insert(graphics, {Type="Text", Text="Aspect:", Position={x+8,y+46}, Size={42,18}, FontSize=9})
+    layout["aspect_ratio"] = {PrettyName="Aspect Ratio", Style="Text", Position={x+52,y+44}, Size={120,22}, FontSize=9}
+
+  elseif current_page == 2 then
+    -- ===== PAGE 2: REMOTE / CHANNEL =====
+
+    -- Number Pad
+    table.insert(graphics, {Type="GroupBox", Text="Number Pad", Position={x,y}, Size={W,140}, FontSize=10})
+    local bw, bh, bg = 50, 30, 6
+    local pad_x = x + math.floor((W - 3*(bw+bg) + bg) / 2)
+    for i = 1, 9 do
+      local col = (i-1) % 3; local row = math.floor((i-1) / 3)
+      layout["num_"..i] = {PrettyName="Num "..i, Style="Button", Legend=tostring(i), Position={pad_x+col*(bw+bg), y+18+row*(bh+bg)}, Size={bw,bh}, FontSize=12, Color={60,60,60}, OffColor={30,30,30}}
+    end
+    layout["num_0"] = {PrettyName="Num 0", Style="Button", Legend="0", Position={pad_x+1*(bw+bg), y+18+3*(bh+bg)}, Size={bw,bh}, FontSize=12, Color={60,60,60}, OffColor={30,30,30}}
+    y = y + 144
+
+    -- Navigation D-Pad
+    table.insert(graphics, {Type="GroupBox", Text="Navigation", Position={x,y}, Size={W,140}, FontSize=10})
+    local cx = x + W/2
+    local cy = y + 72
+    local nb = 50
+    layout["nav_up"] = {PrettyName="Nav Up", Style="Button", Legend="▲", Position={cx-nb/2, cy-nb-4}, Size={nb,nb}, FontSize=14, Color={0,120,200}, OffColor={30,30,30}}
+    layout["nav_down"] = {PrettyName="Nav Down", Style="Button", Legend="▼", Position={cx-nb/2, cy+4}, Size={nb,nb}, FontSize=14, Color={0,120,200}, OffColor={30,30,30}}
+    layout["nav_left"] = {PrettyName="Nav Left", Style="Button", Legend="◄", Position={cx-nb-nb/2-4, cy-nb/2}, Size={nb,nb}, FontSize=14, Color={0,120,200}, OffColor={30,30,30}}
+    layout["nav_right"] = {PrettyName="Nav Right", Style="Button", Legend="►", Position={cx+nb/2+4, cy-nb/2}, Size={nb,nb}, FontSize=14, Color={0,120,200}, OffColor={30,30,30}}
+    layout["nav_ok"] = {PrettyName="OK", Style="Button", Legend="OK", Position={cx-nb/2, cy-nb/2}, Size={nb,nb}, FontSize=12, Color={0,180,0}, OffColor={30,30,30}}
+    y = y + 144
+
+    -- Menu Buttons
+    table.insert(graphics, {Type="GroupBox", Text="Menu", Position={x,y}, Size={W,52}, FontSize=10})
+    local mb = 52
+    local mg = 6
+    local mx = x + math.floor((W - 6*(mb+mg) + mg) / 2)
+    layout["btn_menu"] = {PrettyName="Menu", Style="Button", Legend="MENU", Position={mx, y+20}, Size={mb,24}, FontSize=8, Color={100,100,100}, OffColor={30,30,30}}
+    layout["btn_home"] = {PrettyName="Home", Style="Button", Legend="HOME", Position={mx+1*(mb+mg), y+20}, Size={mb,24}, FontSize=8, Color={100,100,100}, OffColor={30,30,30}}
+    layout["btn_back"] = {PrettyName="Back", Style="Button", Legend="BACK", Position={mx+2*(mb+mg), y+20}, Size={mb,24}, FontSize=8, Color={100,100,100}, OffColor={30,30,30}}
+    layout["btn_exit"] = {PrettyName="Exit", Style="Button", Legend="EXIT", Position={mx+3*(mb+mg), y+20}, Size={mb,24}, FontSize=8, Color={200,0,0}, OffColor={30,30,30}}
+    layout["btn_info"] = {PrettyName="Info", Style="Button", Legend="INFO", Position={mx+4*(mb+mg), y+20}, Size={mb,24}, FontSize=8, Color={100,100,100}, OffColor={30,30,30}}
+    layout["btn_settings"] = {PrettyName="Settings", Style="Button", Legend="SET", Position={mx+5*(mb+mg), y+20}, Size={mb,24}, FontSize=8, Color={100,100,100}, OffColor={30,30,30}}
+    y = y + 56
+
+    -- Channel
+    table.insert(graphics, {Type="GroupBox", Text="Channel", Position={x,y}, Size={W,52}, FontSize=10})
+    layout["ch_up"] = {PrettyName="Ch Up", Style="Button", Legend="CH +", Position={x+8,y+20}, Size={60,24}, Color={0,120,200}}
+    layout["ch_down"] = {PrettyName="Ch Down", Style="Button", Legend="CH -", Position={x+72,y+20}, Size={60,24}, Color={0,120,200}}
+    layout["ch_number"] = {PrettyName="Channel", Style="Text", Position={x+140,y+20}, Size={210,24}, FontSize=10}
+    y = y + 56
+
+    -- Direct Tune
+    table.insert(graphics, {Type="GroupBox", Text="Direct Tune", Position={x,y}, Size={W,52}, FontSize=10})
+    table.insert(graphics, {Type="Text", Text="Major:", Position={x+8,y+22}, Size={36,18}, FontSize=9})
+    layout["ch_major"] = {PrettyName="Ch Major", Style="Text", Position={x+46,y+20}, Size={60,22}, FontSize=10}
+    table.insert(graphics, {Type="Text", Text="Minor:", Position={x+112,y+22}, Size={36,18}, FontSize=9})
+    layout["ch_minor"] = {PrettyName="Ch Minor", Style="Text", Position={x+150,y+20}, Size={60,22}, FontSize=10}
+    layout["ch_tune"] = {PrettyName="Tune", Style="Button", Legend="TUNE", Position={x+220,y+20}, Size={60,24}, Color={0,180,0}}
+    y = y + 56
+
+    -- Favorites
+    table.insert(graphics, {Type="GroupBox", Text="Favorites", Position={x,y}, Size={W,112}, FontSize=10})
+    for i = 1, 6 do
+      local col = (i-1) % 3; local row = math.floor((i-1) / 3)
+      local fx = x + 8 + col * 116; local fy = y + 18 + row * 44
+      layout["fav_recall_"..i] = {PrettyName="Fav "..i.." Recall", Style="Button", Legend="FAV "..i, Position={fx,fy}, Size={50,20}, FontSize=8, Color={0,120,200}, OffColor={40,40,40}}
+      layout["fav_set_"..i] = {PrettyName="Fav "..i.." Set", Style="Button", Legend="SET", Position={fx+52,fy}, Size={30,20}, FontSize=7, Color={200,100,0}}
+      layout["fav_label_"..i] = {PrettyName="Fav "..i.." Label", Style="Text", Position={fx,fy+22}, Size={82,18}, FontSize=8}
+    end
+  end
+
+  return layout, graphics
+end
+
+
+-- ==================== RUNTIME ====================
+if Controls then
+  local srcs = get_sources(Properties)
+  local src_buttons = {}
+  for i = 1, #srcs do src_buttons[i] = Controls["src_"..i] end
+  local src_code_to_name, src_name_to_code = {}, {}
+  for _, s in ipairs(srcs) do src_code_to_name[s.code]=s.name; src_name_to_code[s.name]=s.code end
+  local set_id = string.format("%02x", Properties["Set ID"].Value)
+
+  -- State
+  local power_target, mute_target, screen_mute_target, source_target = nil,nil,nil,nil
+  local current_power, current_mute, current_screen_mute, current_source = "00","01","00",""
+  local current_vol, current_bright, current_contrast = 0,0,0
+  local is_connected = false
+  local favorites = {}; for i=1,6 do favorites[i]={major=0,minor=0} end
+
+  -- Command queue
+  local cmd_queue, cmd_busy, cmd_timer, rx_buffer = {}, false, nil, ""
+  local function build_cmd(c1c2, data) return c1c2.." "..set_id.." "..data.."\r" end
+  local function queue_cmd(raw) table.insert(cmd_queue, raw) end
+
+  local function send_raw(raw)
+    if Properties["Connection Type"].Value == "TCP" then
+      if sock and sock.IsConnected then sock:Write(raw) end
+    else
+      if serial_open then SerialPorts[1]:Write(raw) end
+    end
+  end
+
+  local function process_queue()
+    if cmd_busy or #cmd_queue == 0 then return end
+    cmd_busy = true
+    local cmd = table.remove(cmd_queue, 1)
+    if cmd_timer then Timer.Cancel(cmd_timer); cmd_timer = nil end
+    cmd_timer = Timer.CallAfter(function()
+      cmd_busy = false; cmd_timer = nil; process_queue()
+    end, 5)
+    send_raw(cmd)
+  end
+
+  -- Wake on LAN
+  local function send_wol()
+    local mac_str = Properties["MAC Address"].Value
+    if not mac_str or mac_str == "" then return end
+    local mb = {}
+    for hex in mac_str:gmatch("[0-9A-Fa-f][0-9A-Fa-f]") do table.insert(mb, string.char(tonumber(hex,16))) end
+    if #mb ~= 6 then return end
+    local magic = string.rep("\xFF",6) .. string.rep(table.concat(mb),16)
+    local udp = UdpSocket.New(); udp:Open(nil,0)
+    udp:Send("255.255.255.255", 9, magic)
+    Timer.CallAfter(function() udp:Close() end, 1)
+    print("[LG] WOL sent to "..mac_str)
+  end
+
+  -- Display updates
+  local function set_connected(state)
+    is_connected = state
+    Controls.connection_status.String = state and "Connected" or "Disconnected"
+    Controls.connection_led.Value = state and 1 or 0
+  end
+  local function update_power()
+    Controls.power_state.String = current_power=="01" and "On" or "Standby"
+    Controls.power_led.Value = current_power=="01" and 1 or 0
+    Controls.power_on.Boolean = current_power=="01"
+    Controls.power_off.Boolean = current_power~="01"
+  end
+  local function update_mute()
+    local m = current_mute=="00"
+    Controls.mute_state.String = m and "Muted" or "Unmuted"
+    Controls.mute_led.Value = m and 1 or 0; Controls.mute_toggle.Boolean = m
+  end
+  local function update_smute()
+    local b = current_screen_mute=="01"
+    Controls.screen_mute_state.String = b and "Blanked" or "Active"
+    Controls.screen_mute_led.Value = b and 1 or 0; Controls.screen_mute_toggle.Boolean = b
+  end
+  local function update_source()
+    Controls.current_source.String = src_code_to_name[current_source] or current_source
+    for i,s in ipairs(srcs) do src_buttons[i].Boolean = (s.code==current_source) end
+  end
+
+  -- Response parser
+  local ASPECT = {["01"]="4:3",["02"]="16:9",["04"]="Zoom",["06"]="Auto",["09"]="Just Scan",["10"]="Cinema Zoom",["1F"]="Full Wide"}
+  local function parse_response(line)
+    line = line:gsub("%s+$",""):gsub("^%s+","")
+    Controls.last_response.String = line
+    if line == "" then return end
+    local cmd2, rid, status, data = line:match("^(%a)%s+(%x+)%s+(OK)(%x+)")
+    if not cmd2 then cmd2, rid, status, data = line:match("^(%a)%s+(%x+)%s+(NG)(%x+)") end
+    if not cmd2 then return end
+    if status == "NG" then print("[LG] NG: "..line); return end
+    if cmd2=="a" then current_power=data; update_power()
+      if power_target=="01" and data=="01" then power_target=nil
+        if not source_target then
+          local ss=Properties["Startup Source"].Value
+          if ss~="None" and src_name_to_code[ss] then source_target=src_name_to_code[ss] end
+        end
+        if Properties["Startup Mute"].Value=="Muted" then mute_target="00" end
+      elseif power_target=="00" and data=="00" then power_target=nil end
+    elseif cmd2=="e" then current_mute=data; update_mute()
+      if mute_target and data==mute_target then mute_target=nil end
+    elseif cmd2=="d" then current_screen_mute=data; update_smute()
+      if screen_mute_target and data==screen_mute_target then screen_mute_target=nil end
+    elseif cmd2=="f" then current_vol=tonumber(data,16) or 0; Controls.vol_level.String=tostring(current_vol)
+    elseif cmd2=="h" then current_bright=tonumber(data,16) or 0; Controls.bright_level.String=tostring(current_bright)
+    elseif cmd2=="g" then current_contrast=tonumber(data,16) or 0; Controls.contrast_level.String=tostring(current_contrast)
+    elseif cmd2=="b" then current_source=data; update_source()
+      if source_target and data==source_target then source_target=nil end
+    elseif cmd2=="c" then Controls.aspect_ratio.String = ASPECT[data] or ("Code "..data)
+    end
+  end
+
+  local function on_data(data)
+    rx_buffer = rx_buffer .. data
+    while true do
+      local pos = rx_buffer:find("x")
+      if not pos then break end
+      local seg = rx_buffer:sub(1, pos-1); rx_buffer = rx_buffer:sub(pos+1)
+      for resp in seg:gmatch("[^\r\n]+") do parse_response(resp) end
+      if cmd_timer then Timer.Cancel(cmd_timer); cmd_timer=nil end
+      cmd_busy = false; process_queue()
+    end
+  end
+
+  -- TCP
+  sock = nil
+  local function connect_tcp()
+    if Properties["Connection Type"].Value ~= "TCP" then return end
+    local ip = Properties["IP Address"].Value
+    if not ip or ip=="" then Controls.connection_status.String="No IP"; return end
+    sock = TcpSocket.New(); sock.ReadTimeout=0; sock.WriteTimeout=5; sock.ReconnectTimeout=5; rx_buffer=""
+    sock.EventHandler = function(s, evt, err)
+      if evt==TcpSocket.Events.Connected then set_connected(true); process_queue()
+      elseif evt==TcpSocket.Events.Data then on_data(s:Read(s.BufferLength))
+      elseif evt==TcpSocket.Events.Closed or evt==TcpSocket.Events.Error then
+        set_connected(false); cmd_busy=false; cmd_queue={}
+      elseif evt==TcpSocket.Events.Reconnect then Controls.connection_status.String="Reconnecting..." end
+    end
+    Controls.connection_status.String = "Connecting..."; sock:Connect(ip, 9761)
+  end
+
+  -- RS-232
+  serial_open = false
+  local function connect_serial()
+    if Properties["Connection Type"].Value ~= "RS-232" then return end
+    if not SerialPorts or not SerialPorts[1] then Controls.connection_status.String="No serial port"; return end
+    rx_buffer = ""
+    SerialPorts[1].EventHandler = function(port, evt)
+      if evt==SerialPorts.Events.Connected then serial_open=true; set_connected(true); process_queue()
+      elseif evt==SerialPorts.Events.Data then on_data(port:Read(port.BufferLength))
+      elseif evt==SerialPorts.Events.Closed or evt==SerialPorts.Events.Error then
+        serial_open=false; set_connected(false); cmd_busy=false; cmd_queue={} end
+    end
+    SerialPorts[1]:Open(9600, 8, "N", 1)
+  end
+
+  -- Polling
+  local function do_poll()
+    if not is_connected then return end
+    if power_target and current_power~=power_target then queue_cmd(build_cmd("ka",power_target)) end
+    if current_power=="01" then
+      if mute_target and current_mute~=mute_target then queue_cmd(build_cmd("ke",mute_target)) end
+      if screen_mute_target and current_screen_mute~=screen_mute_target then queue_cmd(build_cmd("kd",screen_mute_target)) end
+      if source_target and current_source~=source_target then queue_cmd(build_cmd("xb",source_target)) end
+    end
+    queue_cmd(build_cmd("ka","ff"))
+    if current_power=="01" then
+      queue_cmd(build_cmd("ke","ff")); queue_cmd(build_cmd("kd","ff"))
+      queue_cmd(build_cmd("xb","ff")); queue_cmd(build_cmd("kf","ff"))
+      queue_cmd(build_cmd("kh","ff")); queue_cmd(build_cmd("kg","ff"))
+      queue_cmd(build_cmd("kc","ff"))
+    end
+    process_queue()
+  end
+
+  -- Control handlers
+  Controls.power_on.EventHandler = function(ctrl)
+    if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
+    Controls.power_on.Boolean = true
+    Controls.power_off.Boolean = false
+    if Properties["Power On Method"].Value=="Wake on LAN" then
+      send_wol()
+      Timer.CallAfter(function() power_target="01"
+        if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
+      end, 3)
+    else power_target="01"
+      if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
+    end
+  end
+  Controls.power_off.EventHandler = function(ctrl)
+    if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
+    Controls.power_off.Boolean = true
+    Controls.power_on.Boolean = false
+    power_target="00"; mute_target=nil; screen_mute_target=nil; source_target=nil
+    if is_connected then queue_cmd(build_cmd("ka","00")); process_queue() end
+  end
+  Controls.mute_toggle.EventHandler = function(ctrl)
+    if current_power~="01" then ctrl.Boolean=false; return end
+    mute_target = ctrl.Boolean and "00" or "01"
+    if is_connected then queue_cmd(build_cmd("ke",mute_target)); process_queue() end
+  end
+  Controls.screen_mute_toggle.EventHandler = function(ctrl)
+    if current_power~="01" then ctrl.Boolean=false; return end
+    screen_mute_target = ctrl.Boolean and "01" or "00"
+    if is_connected then queue_cmd(build_cmd("kd",screen_mute_target)); process_queue() end
+  end
+  for i,s in ipairs(srcs) do
+    src_buttons[i].EventHandler = function(ctrl)
+      if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
+      for j=1,#srcs do src_buttons[j].Boolean=(j==i) end
+      source_target=s.code
+      -- Only send command if display is on and connected
+      if current_power=="01" and is_connected then queue_cmd(build_cmd("xb",s.code)); process_queue() end
+    end
+  end
+  Controls.vol_up.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kf",string.format("%02x",math.min(current_vol+1,100)))); process_queue() end
+  end
+  Controls.vol_down.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kf",string.format("%02x",math.max(current_vol-1,0)))); process_queue() end
+  end
+  Controls.bright_up.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kh",string.format("%02x",math.min(current_bright+1,100)))); process_queue() end
+  end
+  Controls.bright_down.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kh",string.format("%02x",math.max(current_bright-1,0)))); process_queue() end
+  end
+  Controls.contrast_up.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kg",string.format("%02x",math.min(current_contrast+1,100)))); process_queue() end
+  end
+  Controls.contrast_down.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      queue_cmd(build_cmd("kg",string.format("%02x",math.max(current_contrast-1,0)))); process_queue() end
+  end
+  Controls.ch_up.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then queue_cmd(build_cmd("mc","00")); process_queue() end
+  end
+  Controls.ch_down.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then queue_cmd(build_cmd("mc","01")); process_queue() end
+  end
+  Controls.ch_tune.EventHandler = function(ctrl)
+    if ctrl.Boolean and current_power=="01" and is_connected then
+      local mj,mn = math.floor(Controls.ch_major.Value), math.floor(Controls.ch_minor.Value)
+      queue_cmd(build_cmd("ma",string.format("%02x %02x %02x %02x",math.floor(mj/256),mj%256,math.floor(mn/256),mn%256)))
+      process_queue()
+    end
+  end
+  for i=1,6 do
+    Controls["fav_set_"..i].EventHandler = function(ctrl)
+      if ctrl.Boolean then
+        favorites[i].major=math.floor(Controls.ch_major.Value); favorites[i].minor=math.floor(Controls.ch_minor.Value)
+        local l=tostring(favorites[i].major); if favorites[i].minor>0 then l=l.."."..tostring(favorites[i].minor) end
+        Controls["fav_label_"..i].String=l
+      end
+    end
+    Controls["fav_recall_"..i].EventHandler = function(ctrl)
+      if ctrl.Boolean and current_power=="01" and is_connected then
+        Controls.ch_major.Value=favorites[i].major; Controls.ch_minor.Value=favorites[i].minor
+        local mj,mn=favorites[i].major,favorites[i].minor
+        queue_cmd(build_cmd("ma",string.format("%02x %02x %02x %02x",math.floor(mj/256),mj%256,math.floor(mn/256),mn%256)))
+        process_queue()
+      end
+    end
+  end
+
+  -- Remote: IR key command helper
+  local function send_ir(key_code)
+    if current_power=="01" and is_connected then
+      queue_cmd(build_cmd("mc", key_code)); process_queue()
+    end
+  end
+
+  -- Number pad (0-9) using LG IR key codes
+  local NUM_CODES = {["0"]="10",["1"]="11",["2"]="12",["3"]="13",["4"]="14",["5"]="15",["6"]="16",["7"]="17",["8"]="18",["9"]="19"}
+  for i=0,9 do
+    Controls["num_"..i].EventHandler = function(ctrl)
+      if ctrl.Boolean then send_ir(NUM_CODES[tostring(i)]) end
+    end
+  end
+
+  -- Navigation d-pad
+  Controls.nav_up.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("40") end end
+  Controls.nav_down.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("41") end end
+  Controls.nav_left.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("07") end end
+  Controls.nav_right.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("06") end end
+  Controls.nav_ok.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("44") end end
+
+  -- Menu buttons
+  Controls.btn_menu.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("43") end end
+  Controls.btn_home.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("23") end end
+  Controls.btn_back.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("28") end end
+  Controls.btn_exit.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("2D") end end
+  Controls.btn_info.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("AA") end end
+  Controls.btn_settings.EventHandler = function(ctrl) if ctrl.Boolean then send_ir("43") end end
+
+  -- Init
+  set_connected(false)
+  Controls.power_state.String="Unknown"; Controls.mute_state.String="Unknown"
+  Controls.screen_mute_state.String="Unknown"; Controls.current_source.String="Unknown"
+  Controls.vol_level.String="--"; Controls.bright_level.String="--"
+  Controls.contrast_level.String="--"; Controls.aspect_ratio.String="--"; Controls.ch_number.String="--"
+  for i=1,6 do Controls["fav_label_"..i].String = "---" end
+  -- Default button states
+  Controls.power_on.Boolean = false
+  Controls.power_off.Boolean = true
+  -- Pre-select startup source button
+  local ss = Properties["Startup Source"].Value
+  if ss ~= "None" then
+    for i, s in ipairs(srcs) do
+      src_buttons[i].Boolean = (s.name == ss)
+    end
+    Controls.current_source.String = ss
+  end
+
+  if Properties["Connection Type"].Value == "TCP" then connect_tcp() else connect_serial() end
+  local poll_timer = Timer.New()
+  poll_timer.EventHandler = function() do_poll() end
+  Timer.CallAfter(function() poll_timer:Start(Properties["Poll Interval"].Value or 5) end, 2)
+  print("[LG] v1.0 init ("..Properties["Connection Type"].Value.." / "..Properties["Display Type"].Value..")")
+end
