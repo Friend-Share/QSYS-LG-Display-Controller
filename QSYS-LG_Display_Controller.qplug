@@ -316,6 +316,7 @@ if Controls then
   local function queue_cmd(raw) table.insert(cmd_queue, raw) end
 
   local function send_raw(raw)
+    print("[LG] send_raw called with: " .. raw:gsub("\r","<CR>"))
     if Properties["Connection Type"].Value == "TCP" then
       if sock and sock.IsConnected then sock:Write(raw) end
     elseif Properties["Connection Type"].Value == "RS-232" then
@@ -501,11 +502,13 @@ if Controls then
   end
 
   Controls.power_on.EventHandler = function(ctrl)
+    print("[LG] Power On button clicked")
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
     Controls.power_on.Boolean = true
     Controls.power_off.Boolean = false
     if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="01"; blind_update() end
     if Properties["Power On Method"].Value=="Wake on LAN" then
+      print("[LG] Sending WOL and waiting 3 seconds...")
       send_wol()
       Timer.CallAfter(function() power_target="01"
         if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
@@ -515,6 +518,7 @@ if Controls then
     end
   end
   Controls.power_off.EventHandler = function(ctrl)
+    print("[LG] Power Off button clicked")
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
     Controls.power_off.Boolean = true
     Controls.power_on.Boolean = false
