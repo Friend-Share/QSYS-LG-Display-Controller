@@ -5,8 +5,7 @@
 PluginInfo = {
   Name = "LG Display Controller",
   Version = "1.0.0.010",
-  BuildVersion = "1.0.0.3",
-  Id = "lg-display-rs232-tcp",
+  BuildVersion = "1.0.0.1",2s  Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
   Description = "Controls LG displays via RS-232C, TCP, or string pins with WOL support"
 }
