@@ -4,8 +4,8 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.009",
-  BuildVersion = "1.0.0.2",
+  Version = "1.0.0.010",
+  BuildVersion = "1.0.0.3",
   Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
   Description = "Controls LG displays via RS-232C, TCP, or string pins with WOL support"
@@ -321,6 +321,8 @@ if Controls then
       if serial_open then SerialPorts[1]:Write(raw) end
     elseif Properties["Connection Type"].Value == "Serial Pins" then
       Controls.serial_tx.String = raw
+      -- Clear the string so consecutive identical commands still trigger a change event downstream
+      Timer.CallAfter(function() Controls.serial_tx.String = "" end, 0.1)
     end
   end
 
