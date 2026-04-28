@@ -4,8 +4,9 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.010",
-  BuildVersion = "1.0.0.1",2s  Id = "lg-display-rs232-tcp",
+  Version = "1.0.0.011",
+  BuildVersion = "1.0.0.1",
+  Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
   Description = "Controls LG displays via RS-232C, TCP, or string pins with WOL support"
 }
@@ -54,6 +55,7 @@ function GetProperties()
     { Name="IP Address", Type="string", Value="192.168.1.100" },
     { Name="Set ID", Type="integer", Value=1, Min=0, Max=99 },
     { Name="Poll Interval", Type="integer", Value=5, Min=1, Max=30 },
+    { Name="Feedback Mode", Type="enum", Choices={"Polled (Requires RX)", "Blind (Assume Success)"}, Value="Polled (Requires RX)" },
     { Name="Display Type", Type="enum", Choices={"Commercial Signage","Pro:Centric"}, Value="Commercial Signage" },
     { Name="Power On Method", Type="enum", Choices={"Standard","Wake on LAN"}, Value="Standard" },
     { Name="MAC Address", Type="string", Value="" },
@@ -330,9 +332,10 @@ if Controls then
     cmd_busy = true
     local cmd = table.remove(cmd_queue, 1)
     if cmd_timer then Timer.Cancel(cmd_timer); cmd_timer = nil end
+    local timeout = (Properties["Feedback Mode"].Value == "Blind (Assume Success)") and 0.5 or 5
     cmd_timer = Timer.CallAfter(function()
       cmd_busy = false; cmd_timer = nil; process_queue()
-    end, 5)
+    end, timeout)
     send_raw(cmd)
   end
 
@@ -469,6 +472,12 @@ if Controls then
   local function do_poll()
     if not is_connected then return end
     if power_target and current_power~=power_target then queue_cmd(build_cmd("ka",power_target)) end
+
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then
+      process_queue()
+      return
+    end
+
     if current_power=="01" then
       if mute_target and current_mute~=mute_target then queue_cmd(build_cmd("ke",mute_target)) end
       if screen_mute_target and current_screen_mute~=screen_mute_target then queue_cmd(build_cmd("kd",screen_mute_target)) end
@@ -485,10 +494,17 @@ if Controls then
   end
 
   -- Control handlers
+  local function blind_update()
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then
+      update_power(); update_mute(); update_smute(); update_source()
+    end
+  end
+
   Controls.power_on.EventHandler = function(ctrl)
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
     Controls.power_on.Boolean = true
     Controls.power_off.Boolean = false
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="01"; blind_update() end
     if Properties["Power On Method"].Value=="Wake on LAN" then
       send_wol()
       Timer.CallAfter(function() power_target="01"
@@ -502,17 +518,20 @@ if Controls then
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
     Controls.power_off.Boolean = true
     Controls.power_on.Boolean = false
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="00"; blind_update() end
     power_target="00"; mute_target=nil; screen_mute_target=nil; source_target=nil
     if is_connected then queue_cmd(build_cmd("ka","00")); process_queue() end
   end
   Controls.mute_toggle.EventHandler = function(ctrl)
     if current_power~="01" then ctrl.Boolean=false; return end
     mute_target = ctrl.Boolean and "00" or "01"
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_mute=mute_target; blind_update() end
     if is_connected then queue_cmd(build_cmd("ke",mute_target)); process_queue() end
   end
   Controls.screen_mute_toggle.EventHandler = function(ctrl)
     if current_power~="01" then ctrl.Boolean=false; return end
     screen_mute_target = ctrl.Boolean and "01" or "00"
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_screen_mute=screen_mute_target; blind_update() end
     if is_connected then queue_cmd(build_cmd("kd",screen_mute_target)); process_queue() end
   end
   for i,s in ipairs(srcs) do
@@ -520,33 +539,46 @@ if Controls then
       if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
       for j=1,#srcs do src_buttons[j].Boolean=(j==i) end
       source_target=s.code
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_source=source_target; blind_update() end
       -- Only send command if display is on and connected
       if current_power=="01" and is_connected then queue_cmd(build_cmd("xb",s.code)); process_queue() end
     end
   end
   Controls.vol_up.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kf",string.format("%02x",math.min(current_vol+1,100)))); process_queue() end
+      current_vol = math.min(current_vol+1,100)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
+      queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue() end
   end
   Controls.vol_down.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kf",string.format("%02x",math.max(current_vol-1,0)))); process_queue() end
+      current_vol = math.max(current_vol-1,0)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
+      queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue() end
   end
   Controls.bright_up.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kh",string.format("%02x",math.min(current_bright+1,100)))); process_queue() end
+      current_bright = math.min(current_bright+1,100)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
+      queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue() end
   end
   Controls.bright_down.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kh",string.format("%02x",math.max(current_bright-1,0)))); process_queue() end
+      current_bright = math.max(current_bright-1,0)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
+      queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue() end
   end
   Controls.contrast_up.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kg",string.format("%02x",math.min(current_contrast+1,100)))); process_queue() end
+      current_contrast = math.min(current_contrast+1,100)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
+      queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue() end
   end
   Controls.contrast_down.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then
-      queue_cmd(build_cmd("kg",string.format("%02x",math.max(current_contrast-1,0)))); process_queue() end
+      current_contrast = math.max(current_contrast-1,0)
+      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
+      queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue() end
   end
   Controls.ch_up.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then queue_cmd(build_cmd("mc","00")); process_queue() end
