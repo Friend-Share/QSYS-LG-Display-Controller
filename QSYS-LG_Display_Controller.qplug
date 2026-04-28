@@ -4,7 +4,7 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.011",
+  Version = "1.0.0.012",
   BuildVersion = "1.0.0.1",
   Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
@@ -323,7 +323,7 @@ if Controls then
     elseif Properties["Connection Type"].Value == "Serial Pins" then
       Controls.serial_tx.String = raw
       -- Clear the string so consecutive identical commands still trigger a change event downstream
-      Timer.CallAfter(function() Controls.serial_tx.String = "" end, 0.1)
+      Timer.CallAfter(function() Controls.serial_tx.String = "" end, 0.05)
     end
   end
 
@@ -332,7 +332,7 @@ if Controls then
     cmd_busy = true
     local cmd = table.remove(cmd_queue, 1)
     if cmd_timer then Timer.Cancel(cmd_timer); cmd_timer = nil end
-    local timeout = (Properties["Feedback Mode"].Value == "Blind (Assume Success)") and 0.5 or 5
+    local timeout = (Properties["Feedback Mode"].Value == "Blind (Assume Success)") and 0.1 or 5
     cmd_timer = Timer.CallAfter(function()
       cmd_busy = false; cmd_timer = nil; process_queue()
     end, timeout)
