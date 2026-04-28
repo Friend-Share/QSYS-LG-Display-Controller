@@ -4,7 +4,7 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.012",
+  Version = "1.0.0.013",
   BuildVersion = "1.0.0.1",
   Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
@@ -472,12 +472,14 @@ if Controls then
   -- Polling
   local function do_poll()
     if not is_connected then return end
-    if power_target and current_power~=power_target then queue_cmd(build_cmd("ka",power_target)) end
 
     if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then
+      if power_target then queue_cmd(build_cmd("ka",power_target)) end
       process_queue()
       return
     end
+
+    if power_target and current_power~=power_target then queue_cmd(build_cmd("ka",power_target)) end
 
     if current_power=="01" then
       if mute_target and current_mute~=mute_target then queue_cmd(build_cmd("ke",mute_target)) end
