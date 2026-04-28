@@ -4,11 +4,11 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.007",
-  BuildVersion = "1.0.0.1",
+  Version = "1.0.0.009",
+  BuildVersion = "1.0.0.2",
   Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
-  Description = "Controls LG displays via RS-232C or TCP with WOL support"
+  Description = "Controls LG displays via RS-232C, TCP, or string pins with WOL support"
 }
 
 function GetColor(props) return { 170, 0, 90 } end
@@ -51,7 +51,7 @@ end
 -- ==================== PROPERTIES ====================
 function GetProperties()
   return {
-    { Name="Connection Type", Type="enum", Choices={"TCP","RS-232"}, Value="TCP" },
+    { Name="Connection Type", Type="enum", Choices={"TCP","RS-232","Serial Pins"}, Value="TCP" },
     { Name="IP Address", Type="string", Value="192.168.1.100" },
     { Name="Set ID", Type="integer", Value=1, Min=0, Max=99 },
     { Name="Poll Interval", Type="integer", Value=5, Min=1, Max=30 },
@@ -140,6 +140,9 @@ function GetControls(props)
   table.insert(c, {Name="btn_exit", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
   table.insert(c, {Name="btn_info", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
   table.insert(c, {Name="btn_settings", ControlType="Button", ButtonType="Momentary", UserPin=true, PinStyle="Both", Count=1})
+  -- Serial Passthrough Pins
+  table.insert(c, {Name="serial_tx", ControlType="Text", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="serial_rx", ControlType="Text", UserPin=true, PinStyle="Both", Count=1})
   return c
 end
 
@@ -157,11 +160,15 @@ function GetControlLayout(props)
   y = y + 28
 
   -- Connection (both pages)
-  table.insert(graphics, {Type="GroupBox", Text="Connection", Position={x,y}, Size={W,52}, FontSize=10})
+  table.insert(graphics, {Type="GroupBox", Text="Connection", Position={x,y}, Size={W,76}, FontSize=10})
   layout["connection_led"] = {PrettyName="Connection LED", Style="Led", Position={x+8,y+22}, Size={16,16}}
   layout["connection_status"] = {PrettyName="Connection Status", Style="Text", Position={x+28,y+20}, Size={130,20}, FontSize=9}
   layout["last_response"] = {PrettyName="Last Response", Style="Text", Position={x+165,y+20}, Size={185,20}, FontSize=8}
-  y = y + 56
+  table.insert(graphics, {Type="Text", Text="TX:", Position={x+8,y+50}, Size={24,16}, FontSize=9, HTextAlign="Right"})
+  layout["serial_tx"] = {PrettyName="Serial TX", Style="Text", Position={x+36,y+48}, Size={130,20}, FontSize=8}
+  table.insert(graphics, {Type="Text", Text="RX:", Position={x+170,y+50}, Size={24,16}, FontSize=9, HTextAlign="Right"})
+  layout["serial_rx"] = {PrettyName="Serial RX", Style="Text", Position={x+198,y+48}, Size={152,20}, FontSize=8}
+  y = y + 80
 
   if current_page == 1 then
     -- ===== PAGE 1: DISPLAY CONTROL =====
@@ -310,8 +317,10 @@ if Controls then
   local function send_raw(raw)
     if Properties["Connection Type"].Value == "TCP" then
       if sock and sock.IsConnected then sock:Write(raw) end
-    else
+    elseif Properties["Connection Type"].Value == "RS-232" then
       if serial_open then SerialPorts[1]:Write(raw) end
+    elseif Properties["Connection Type"].Value == "Serial Pins" then
+      Controls.serial_tx.String = raw
     end
   end
 
@@ -440,6 +449,19 @@ if Controls then
         serial_open=false; set_connected(false); cmd_busy=false; cmd_queue={} end
     end
     SerialPorts[1]:Open(9600, 8, "N", 1)
+  end
+
+  -- Serial Pins
+  local function connect_serial_pins()
+    if Properties["Connection Type"].Value ~= "Serial Pins" then return end
+    set_connected(true)
+    rx_buffer = ""
+    Controls.serial_rx.EventHandler = function(ctrl)
+      if ctrl.String and ctrl.String ~= "" then
+        on_data(ctrl.String)
+      end
+    end
+    process_queue()
   end
 
   -- Polling
@@ -605,7 +627,9 @@ if Controls then
     Controls.current_source.String = ss
   end
 
-  if Properties["Connection Type"].Value == "TCP" then connect_tcp() else connect_serial() end
+  if Properties["Connection Type"].Value == "TCP" then connect_tcp()
+  elseif Properties["Connection Type"].Value == "RS-232" then connect_serial()
+  elseif Properties["Connection Type"].Value == "Serial Pins" then connect_serial_pins() end
   local poll_timer = Timer.New()
   poll_timer.EventHandler = function() do_poll() end
   Timer.CallAfter(function() poll_timer:Start(Properties["Poll Interval"].Value or 5) end, 2)
