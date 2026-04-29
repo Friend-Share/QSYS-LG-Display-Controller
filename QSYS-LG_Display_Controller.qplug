@@ -310,6 +310,19 @@ if Controls then
   local is_connected = false
   local favorites = {}; for i=1,6 do favorites[i]={major=0,minor=0} end
 
+  -- Auto-repeat helper for held buttons
+  local repeat_timers = {}
+  local function start_repeat(key, action)
+    action()
+    if repeat_timers[key] then repeat_timers[key]:Stop() end
+    repeat_timers[key] = Timer.New()
+    repeat_timers[key].EventHandler = function() action() end
+    repeat_timers[key]:Start(0.2)
+  end
+  local function stop_repeat(key)
+    if repeat_timers[key] then repeat_timers[key]:Stop(); repeat_timers[key] = nil end
+  end
+
   -- Command queue
   local cmd_queue, cmd_busy, cmd_timer, rx_buffer = {}, false, nil, ""
   local function build_cmd(c1c2, data) return c1c2.." "..set_id.." "..data.."\r" end
@@ -551,40 +564,70 @@ if Controls then
     end
   end
   Controls.vol_up.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_vol = math.min(current_vol+1,100)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
-      queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("vol_up", function()
+        if current_power=="01" and is_connected then
+          current_vol = math.min(current_vol+1,100)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
+          queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue()
+        end
+      end)
+    else stop_repeat("vol_up") end
   end
   Controls.vol_down.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_vol = math.max(current_vol-1,0)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
-      queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("vol_down", function()
+        if current_power=="01" and is_connected then
+          current_vol = math.max(current_vol-1,0)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.vol_level.String = tostring(current_vol) end
+          queue_cmd(build_cmd("kf",string.format("%02x",current_vol))); process_queue()
+        end
+      end)
+    else stop_repeat("vol_down") end
   end
   Controls.bright_up.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_bright = math.min(current_bright+1,100)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
-      queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("bright_up", function()
+        if current_power=="01" and is_connected then
+          current_bright = math.min(current_bright+1,100)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
+          queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue()
+        end
+      end)
+    else stop_repeat("bright_up") end
   end
   Controls.bright_down.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_bright = math.max(current_bright-1,0)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
-      queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("bright_down", function()
+        if current_power=="01" and is_connected then
+          current_bright = math.max(current_bright-1,0)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.bright_level.String = tostring(current_bright) end
+          queue_cmd(build_cmd("kh",string.format("%02x",current_bright))); process_queue()
+        end
+      end)
+    else stop_repeat("bright_down") end
   end
   Controls.contrast_up.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_contrast = math.min(current_contrast+1,100)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
-      queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("contrast_up", function()
+        if current_power=="01" and is_connected then
+          current_contrast = math.min(current_contrast+1,100)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
+          queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue()
+        end
+      end)
+    else stop_repeat("contrast_up") end
   end
   Controls.contrast_down.EventHandler = function(ctrl)
-    if ctrl.Boolean and current_power=="01" and is_connected then
-      current_contrast = math.max(current_contrast-1,0)
-      if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
-      queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue() end
+    if ctrl.Boolean then
+      start_repeat("contrast_down", function()
+        if current_power=="01" and is_connected then
+          current_contrast = math.max(current_contrast-1,0)
+          if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then Controls.contrast_level.String = tostring(current_contrast) end
+          queue_cmd(build_cmd("kg",string.format("%02x",current_contrast))); process_queue()
+        end
+      end)
+    else stop_repeat("contrast_down") end
   end
   Controls.ch_up.EventHandler = function(ctrl)
     if ctrl.Boolean and current_power=="01" and is_connected then queue_cmd(build_cmd("mc","00")); process_queue() end
