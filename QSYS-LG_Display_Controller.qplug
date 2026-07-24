@@ -4,8 +4,8 @@
 
 PluginInfo = {
   Name = "LG Display Controller",
-  Version = "1.0.0.013",
-  BuildVersion = "1.0.0.1",
+  Version = "1.0.0.018",
+  BuildVersion = "1.0.0.3",
   Id = "lg-display-rs232-tcp",
   Author = "Dustin Bennett",
   Description = "Controls LG displays via RS-232C, TCP, or string pins with WOL support"
@@ -59,6 +59,14 @@ function GetProperties()
     { Name="Display Type", Type="enum", Choices={"Commercial Signage","Pro:Centric"}, Value="Commercial Signage" },
     { Name="Power On Method", Type="enum", Choices={"Standard","Wake on LAN"}, Value="Standard" },
     { Name="MAC Address", Type="string", Value="" },
+    -- After a power-OFF, hold any power-on / Wake-on-LAN for this many seconds so the
+    -- panel can finish shutting down to standby. Waking mid-shutdown can freeze LG
+    -- displays. The wake fires automatically once the window elapses if still wanted.
+    { Name="Power Off Settle Time", Type="double", Value=12.0, Min=0.0, Max=60.0 },
+    -- Optional WOL broadcast override. Blank = auto (sends to 255.255.255.255 AND the
+    -- /24 directed broadcast of the IP Address, e.g. 192.168.1.255). Set this if the
+    -- display is on a non-/24 subnet or a specific broadcast is required.
+    { Name="WOL Broadcast Address", Type="string", Value="" },
     { Name="Startup Source", Type="enum", Choices={"None","HDMI 1","HDMI 2","HDMI 3","HDMI 4","DisplayPort","DVI-D","USB","OPS/PC","Component","AV","TV Tuner"}, Value="None" },
     { Name="Startup Mute", Type="enum", Choices={"Unmuted","Muted"}, Value="Unmuted" },
   }
@@ -79,6 +87,10 @@ function GetControls(props)
   -- Power
   table.insert(c, {Name="power_on", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
   table.insert(c, {Name="power_off", ControlType="Button", ButtonType="Toggle", UserPin=true, PinStyle="Both", Count=1})
+  -- Trigger pins for external automation (e.g. Room State Manager). A Trigger ALWAYS
+  -- fires the power sequence, unlike re-setting a toggle to a value it already holds.
+  table.insert(c, {Name="power_on_trigger", ControlType="Button", ButtonType="Trigger", UserPin=true, PinStyle="Both", Count=1})
+  table.insert(c, {Name="power_off_trigger", ControlType="Button", ButtonType="Trigger", UserPin=true, PinStyle="Both", Count=1})
   table.insert(c, {Name="power_state", ControlType="Indicator", IndicatorType="Text", UserPin=true, PinStyle="Output", Count=1})
   table.insert(c, {Name="power_led", ControlType="Indicator", IndicatorType="Led", UserPin=true, PinStyle="Output", Count=1})
   -- Audio Mute
@@ -305,6 +317,13 @@ if Controls then
 
   -- State
   local power_target, mute_target, screen_mute_target, source_target = nil,nil,nil,nil
+  -- desired_power = the user's LAST On/Off press. It is authoritative for the buttons and
+  -- the WOL retry loop, and is never cleared by lagging feedback or a stale timer.
+  local desired_power = "00"
+  local intent_set = false   -- true once an explicit power command has been issued
+  local wol_running = false  -- true while the WOL retry loop is active
+  local settling = false     -- true during the post-power-off settle window
+  local SETTLE = tonumber(Properties["Power Off Settle Time"].Value) or 12
   local current_power, current_mute, current_screen_mute, current_source = "00","01","00",""
   local current_vol, current_bright, current_contrast = 0,0,0
   local is_connected = false
@@ -354,17 +373,48 @@ if Controls then
   end
 
   -- Wake on LAN
+  -- /24 directed broadcast of an IP (replace last octet with 255). More reliable than
+  -- 255.255.255.255 on a multi-NIC Core because it routes out the display's subnet.
+  local function subnet_broadcast(ip)
+    local a, b, c = tostring(ip or ""):match("^(%d+)%.(%d+)%.(%d+)%.%d+$")
+    if a then return a .. "." .. b .. "." .. c .. ".255" end
+    return nil
+  end
+
   local function send_wol()
-    local mac_str = Properties["MAC Address"].Value
-    if not mac_str or mac_str == "" then return end
+    -- Strip everything but hex so any MAC format works (AA:BB:.., AA-BB-.., AABB..).
+    local mac_hex = tostring(Properties["MAC Address"].Value or ""):gsub("[^0-9A-Fa-f]", "")
+    if #mac_hex ~= 12 then
+      print(string.format("[LG] WOL ABORT: MAC must be 12 hex digits, got %d from '%s'. Use AA:BB:CC:DD:EE:FF or AABBCCDDEEFF.",
+        #mac_hex, tostring(Properties["MAC Address"].Value)))
+      return
+    end
     local mb = {}
-    for hex in mac_str:gmatch("[0-9A-Fa-f][0-9A-Fa-f]") do table.insert(mb, string.char(tonumber(hex,16))) end
-    if #mb ~= 6 then return end
-    local magic = string.rep("\xFF",6) .. string.rep(table.concat(mb),16)
-    local udp = UdpSocket.New(); udp:Open(nil,0)
-    udp:Send("255.255.255.255", 9, magic)
-    Timer.CallAfter(function() udp:Close() end, 1)
-    print("[LG] WOL sent to "..mac_str)
+    for i = 1, 12, 2 do table.insert(mb, string.char(tonumber(mac_hex:sub(i, i + 1), 16))) end
+    local magic = string.rep(string.char(0xFF), 6) .. string.rep(table.concat(mb), 16)
+
+    -- Targets: optional override, else 255.255.255.255 + the /24 directed broadcast.
+    local targets = {}
+    local override = tostring(Properties["WOL Broadcast Address"].Value or ""):gsub("%s+", "")
+    if override ~= "" then
+      table.insert(targets, override)
+    else
+      table.insert(targets, "255.255.255.255")
+      local sub = subnet_broadcast(Properties["IP Address"].Value)
+      if sub then table.insert(targets, sub) end
+    end
+
+    local ok, err = pcall(function()
+      local udp = UdpSocket.New()
+      udp:Open()
+      for _, addr in ipairs(targets) do
+        udp:Send(addr, 9, magic)   -- port 9 (discard) is the standard WOL port
+        udp:Send(addr, 7, magic)   -- also port 7 (echo), some gear listens here
+        print("[LG] WOL magic packet -> " .. addr .. " (ports 7 & 9) for " .. mac_hex)
+      end
+      Timer.CallAfter(function() pcall(function() udp:Close() end) end, 1)
+    end)
+    if not ok then print("[LG] WOL send error: " .. tostring(err)) end
   end
 
   -- Display updates
@@ -374,10 +424,13 @@ if Controls then
     Controls.connection_led.Value = state and 1 or 0
   end
   local function update_power()
-    Controls.power_state.String = current_power=="01" and "On" or "Standby"
+    local waking = (desired_power=="01" and not (is_connected and current_power=="01"))
+    Controls.power_state.String = waking and "Powering On..." or (current_power=="01" and "On" or "Standby")
     Controls.power_led.Value = current_power=="01" and 1 or 0
-    Controls.power_on.Boolean = current_power=="01"
-    Controls.power_off.Boolean = current_power~="01"
+    -- Buttons follow the user's LAST intent so rapid On/Off can't get overridden by
+    -- lagging feedback or a stale timer.
+    Controls.power_on.Boolean = (desired_power=="01")
+    Controls.power_off.Boolean = (desired_power~="01")
   end
   local function update_mute()
     local m = current_mute=="00"
@@ -486,13 +539,17 @@ if Controls then
   local function do_poll()
     if not is_connected then return end
 
+    -- Don't issue a power-ON during the post-OFF settle window (it could wake the
+    -- panel mid-shutdown over TCP); re-asserting OFF stays allowed.
+    local hold_on = settling and power_target == "01"
+
     if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then
-      if power_target then queue_cmd(build_cmd("ka",power_target)) end
+      if power_target and not hold_on then queue_cmd(build_cmd("ka",power_target)) end
       process_queue()
       return
     end
 
-    if power_target and current_power~=power_target then queue_cmd(build_cmd("ka",power_target)) end
+    if power_target and current_power~=power_target and not hold_on then queue_cmd(build_cmd("ka",power_target)) end
 
     if current_power=="01" then
       if mute_target and current_mute~=mute_target then queue_cmd(build_cmd("ke",mute_target)) end
@@ -516,31 +573,85 @@ if Controls then
     end
   end
 
+  -- WOL retry loop: while the user wants the display ON but it isn't connected+on yet,
+  -- re-send the magic packet every 3s (and the TCP power-on once connected). Stops as
+  -- soon as the display is on, or the user presses Off (desired_power flips to "00").
+  local wol_timer = Timer.New()
+  local function wol_tick()
+    if desired_power ~= "01" then wol_running=false; wol_timer:Stop(); return end       -- Off pressed -> stop
+    if settling then wol_running=false; wol_timer:Stop(); return end                    -- wait out the off-settle
+    if is_connected and current_power == "01" then wol_running=false; wol_timer:Stop(); return end -- it's on -> done
+    print("[LG] WOL retry (display not on yet)...")
+    send_wol()
+    power_target = "01"
+    if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
+    wol_running = true
+    wol_timer:Start(3)                                               -- keep retrying
+  end
+  wol_timer.EventHandler = wol_tick
+
+  -- Post-power-off settle: waking an LG mid-shutdown can freeze the panel, so after
+  -- an OFF we hold all wakes for "Power Off Settle Time" seconds. When the window
+  -- elapses, if the standing intent is still ON we issue the wake then.
+  local settle_timer = Timer.New()
+  settle_timer.EventHandler = function()
+    settle_timer:Stop()
+    settling = false
+    if desired_power == "01" then
+      if Properties["Power On Method"].Value == "Wake on LAN" then
+        wol_tick()
+      elseif is_connected then
+        queue_cmd(build_cmd("ka","01")); process_queue()
+      end
+    end
+  end
+
+  -- Core power actions, shared by the toggle buttons AND the trigger pins.
+  local function do_power_on()
+    desired_power = "01"
+    intent_set = true
+    power_target = "01"
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="01"; blind_update() end
+    if settling then
+      -- display is still shutting down from a recent OFF; the settle timer issues
+      -- the wake once the window elapses. Just reflect the pending intent for now.
+      update_power()
+      return
+    end
+    if Properties["Power On Method"].Value=="Wake on LAN" then
+      wol_timer:Stop()
+      wol_tick()   -- fire WOL now, then re-send every 3s until the display is on
+    else
+      if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
+    end
+    update_power()
+  end
+  local function do_power_off()
+    desired_power = "00"
+    intent_set = true
+    wol_running = false
+    wol_timer:Stop()   -- cancel any pending WOL retries so Off can't be overridden
+    power_target="00"; mute_target=nil; screen_mute_target=nil; source_target=nil
+    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="00"; blind_update() end
+    if is_connected then queue_cmd(build_cmd("ka","00")); process_queue() end
+    -- Start the settle window so a quick power-on can't wake the panel mid-shutdown.
+    if SETTLE > 0 then settling = true; settle_timer:Stop(); settle_timer:Start(SETTLE) end
+    update_power()
+  end
+
   Controls.power_on.EventHandler = function(ctrl)
     print("[LG] Power On button clicked")
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
-    Controls.power_on.Boolean = true
-    Controls.power_off.Boolean = false
-    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="01"; blind_update() end
-    if Properties["Power On Method"].Value=="Wake on LAN" then
-      print("[LG] Sending WOL and waiting 3 seconds...")
-      send_wol()
-      Timer.CallAfter(function() power_target="01"
-        if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
-      end, 3)
-    else power_target="01"
-      if is_connected then queue_cmd(build_cmd("ka","01")); process_queue() end
-    end
+    do_power_on()
   end
   Controls.power_off.EventHandler = function(ctrl)
     print("[LG] Power Off button clicked")
     if not ctrl.Boolean then ctrl.Boolean = true; return end -- prevent untoggle
-    Controls.power_off.Boolean = true
-    Controls.power_on.Boolean = false
-    if Properties["Feedback Mode"].Value == "Blind (Assume Success)" then current_power="00"; blind_update() end
-    power_target="00"; mute_target=nil; screen_mute_target=nil; source_target=nil
-    if is_connected then queue_cmd(build_cmd("ka","00")); process_queue() end
+    do_power_off()
   end
+  -- Trigger pins always fire, so external systems can drive power reliably.
+  Controls.power_on_trigger.EventHandler  = function() print("[LG] power_on_trigger");  do_power_on()  end
+  Controls.power_off_trigger.EventHandler = function() print("[LG] power_off_trigger"); do_power_off() end
   Controls.mute_toggle.EventHandler = function(ctrl)
     if current_power~="01" then ctrl.Boolean=false; return end
     mute_target = ctrl.Boolean and "00" or "01"
@@ -712,6 +823,33 @@ if Controls then
   if Properties["Connection Type"].Value == "TCP" then connect_tcp()
   elseif Properties["Connection Type"].Value == "RS-232" then connect_serial()
   elseif Properties["Connection Type"].Value == "Serial Pins" then connect_serial_pins() end
+  -- Enforce the standing power intent. Unlike do_poll (which bails when the
+  -- display is disconnected) this runs always, so a display switched off at its
+  -- own remote is driven back to the room's desired state -- including re-waking
+  -- a WOL display that dropped to standby (and thus dropped its TCP link). Only
+  -- acts once an explicit power command has been issued, so it never fights the
+  -- boot-default state before the room has chosen on/off.
+  local enforce_timer = Timer.New()
+  enforce_timer.EventHandler = function()
+    enforce_timer:Start(5)
+    if not intent_set then return end
+    if settling then return end   -- hold during the post-power-off settle window
+    if desired_power == "01" then
+      if not (is_connected and current_power == "01") then
+        if Properties["Power On Method"].Value == "Wake on LAN" then
+          if not wol_running then wol_tick() end   -- (re)start the WOL retry loop
+        elseif is_connected then
+          queue_cmd(build_cmd("ka","01")); process_queue()
+        end
+      end
+    else
+      if is_connected and current_power ~= "00" then
+        queue_cmd(build_cmd("ka","00")); process_queue()
+      end
+    end
+  end
+  enforce_timer:Start(5)
+
   local poll_timer = Timer.New()
   poll_timer.EventHandler = function() do_poll() end
   Timer.CallAfter(function() poll_timer:Start(Properties["Poll Interval"].Value or 5) end, 2)
